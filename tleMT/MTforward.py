@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.sparse as sp
 from scipy.constants import mu_0
-from SimPEG import Utils, Solver
+from SimPEG import utils,Solver
 
 
 def simulateMT(mesh, sigma, frequency, rtype="app_res"):
@@ -27,11 +27,11 @@ def simulateMT(mesh, sigma, frequency, rtype="app_res"):
 
     # MfMu
     mu = np.ones(mesh.nC)*mu_0 # magnetic permeability values for all cells
-    Mmu = Utils.sdiag(mesh.aveCC2F * mu)
+    Mmu = utils.sdiag(mesh.aveCC2F * mu)
 
     # Mccsigma
     sigmahat = sigma  # quasi-static assumption
-    Msighat = Utils.sdiag(sigmahat)
+    Msighat = utils.sdiag(sigmahat)
 
     # Div
     Div = mesh.faceDiv # Divergence matrix

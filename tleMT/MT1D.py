@@ -1,5 +1,6 @@
 from SimPEG import (
-    Problem, Utils, Maps, Props, Mesh, Tests, Survey, Solver as SimpegSolver
+    # Problem, Utils, Maps, Props, Mesh, Tests, Survey, Solver as SimpegSolver
+    simulation, utils, maps, props, discretize, tests, survey, Solver as SimpegSolver
     )
 import numpy as np
 import scipy.sparse as sp
@@ -7,11 +8,11 @@ import properties
 from scipy.constants import mu_0
 
 
-class MT1DSurvey(Survey.BaseSurvey):
+class MT1DSurvey(survey.BaseSurvey):
 
     def __init__(self, srcList, **kwargs):
         self.srcList = srcList
-        Survey.BaseSurvey.__init__(self, **kwargs)
+        survey.BaseSurvey.__init__(self, **kwargs)
         self.getUniqFrequency()
 
     @property
@@ -27,7 +28,7 @@ class MT1DSurvey(Survey.BaseSurvey):
 
         rxcount = 0
         for src in self.srcList:
-            for rx in src.rxList:
+            for rx in src.receiver_list:
                 frequency_rx.append(rx.frequency)
                 rxcount += 1
         freqs_temp = np.hstack(frequency_rx)
@@ -122,12 +123,12 @@ class MT1DSurvey(Survey.BaseSurvey):
         print (
             (">> # of core cells cells %d") % (ncz)
             )
-        mesh = Mesh.TensorMesh([hz], x0='N')
+        mesh = discretize.TensorMesh([hz], x0='N')
 
         return mesh
 
 
-class MT1DSrc(Survey.BaseSrc):
+class MT1DSrc(survey.BaseSrc):
     """
     Source class for MT1D
     We assume a boundary condition of Ex (z=0) = 1
@@ -135,13 +136,13 @@ class MT1DSrc(Survey.BaseSrc):
     loc = np.r_[0.]
 
 
-class ZxyRx(Survey.BaseRx):
+class ZxyRx(survey.BaseRx):
 
     def __init__(self, locs, component=None, frequency=None):
         self.component = component
         self.frequency = frequency
-        Survey.BaseRx.__init__(self, locs, rxType=None)
-
+        survey.BaseRx.__init__(self, locs) # survey.BaseRx.__init__(self, locs, rxType=None)
+        
     def eval(self, src, f, P0):
         Zxy = - 1./(P0*f)
         if self.component == "real":
@@ -259,31 +260,31 @@ class AppResPhaRx(ZxyRx):
                 raise NotImplementedError('must be appres, phase or both')
 
 
-class MT1DProblem(Problem.BaseProblem):
+class MT1DProblem(simulation.BaseSimulation):
     """
     1D Magnetotelluric problem under quasi-static approximation
 
     """
 
-    sigma, sigmaMap, sigmaDeriv = Props.Invertible(
+    sigma, sigmaMap, sigmaDeriv = props.Invertible(
         "Electrical conductivity (S/m)"
     )
 
-    rho, rhoMap, rhoDeriv = Props.Invertible(
+    rho, rhoMap, rhoDeriv = props.Invertible(
         "Electrical resistivity (Ohm-m)"
     )
 
-    Props.Reciprocal(sigma, rho)
+    props.Reciprocal(sigma, rho)
 
-    mu = Props.PhysicalProperty(
+    mu = props.PhysicalProperty(
         "Magnetic Permeability (H/m)",
         default=mu_0
     )
 
-    surveyPair = Survey.BaseSurvey  #: The survey to pair with.
-    dataPair = Survey.Data  #: The data to pair with.
+    surveyPair = survey.BaseSurvey  #: The survey to pair with.
+    dataPair = survey.Data  #: The data to pair with.
 
-    mapPair = Maps.IdentityMap  #: Type of mapping to pair with
+    mapPair = maps.IdentityMap  #: Type of mapping to pair with
 
     Solver = SimpegSolver  #: Type of solver to pair with
     solverOpts = {}  #: Solver options
@@ -292,7 +293,7 @@ class MT1DProblem(Problem.BaseProblem):
     f = None
 
     def __init__(self, mesh, **kwargs):
-        Problem.BaseProblem.__init__(self, mesh, **kwargs)
+        simulation.BaseSimulation.__init__(self, mesh, **kwargs)
         # Setup boundary conditions
         mesh.setCellGradBC([['dirichlet', 'dirichlet']])
 
@@ -324,7 +325,7 @@ class MT1DProblem(Problem.BaseProblem):
         Diagonal matrix for \\(\\sigma\\).
         """
         if getattr(self, '_MccSigma', None) is None:
-            self._MccSigma = Utils.sdiag(self.sigma)
+            self._MccSigma = utils.sdiag(self.sigma)
         return self._MccSigma
 
     def MccSigmaDeriv(self, u):
@@ -332,10 +333,10 @@ class MT1DProblem(Problem.BaseProblem):
         Derivative of MccSigma with respect to the model
         """
         if self.sigmaMap is None:
-            return Utils.Zero()
+            return utils.Zero()
 
         return (
-            Utils.sdiag(u) * self.sigmaDeriv
+            utils.sdiag(u) * self.sigmaDeriv
         )
 
     @property
@@ -344,7 +345,7 @@ class MT1DProblem(Problem.BaseProblem):
         Diagonal matrix for \\(\\epsilon\\).
         """
         if getattr(self, '_MccEpsilon', None) is None:
-            self._MccEpsilon = Utils.sdiag(self.epsilon)
+            self._MccEpsilon = utils.sdiag(self.epsilon)
         return self._MccEpsilon
 
     @property
@@ -353,7 +354,7 @@ class MT1DProblem(Problem.BaseProblem):
         Edge inner product matrix for \\(\\mu\\).
         """
         if getattr(self, '_MMfMu', None) is None:
-            self._MMfMu = Utils.sdiag(
+            self._MMfMu = utils.sdiag(
                 self.mesh.aveCC2F * self.mu * np.ones(self.mesh.nC)
                 )
         return self._MMfMu
@@ -391,7 +392,7 @@ class MT1DProblem(Problem.BaseProblem):
             if self.verbose:
                 print ("Factorize A matrix")
             self._Ainv = []
-            for freq in self.survey.frequency:
+            for freq in self.surveyPair.frequency:
                 self._Ainv.append(self.Solver(self.getA(freq)))
         return self._Ainv
 
@@ -401,7 +402,7 @@ class MT1DProblem(Problem.BaseProblem):
             if self.verbose:
                 print ("Factorize AT matrix")
             self._ATinv = []
-            for freq in self.survey.frequency:
+            for freq in self.surveyPair.frequency:
                 self._ATinv.append(self.Solver(self.getA(freq).T))
         return self._ATinv
 
@@ -438,10 +439,10 @@ class MT1DProblem(Problem.BaseProblem):
             self.model = m
 
         f = np.zeros(
-            (int(self.mesh.nC*2+1), self.survey.nFreq), dtype="complex"
+            (int(self.mesh.nC*2+1), self.surveyPair.nFreq), dtype="complex"
             )
 
-        for ifreq, freq in enumerate(self.survey.frequency):
+        for ifreq, freq in enumerate(self.surveyPair.frequency):
             f[:, ifreq] = self.Ainv[ifreq] * self.getRHS(freq)
         return f
 
@@ -452,14 +453,14 @@ class MT1DProblem(Problem.BaseProblem):
 
         Jv = []
 
-        for src in self.survey.srcList:
+        for src in self.surveyPair.srcList:
             for rx in src.rxList:
-                for ifreq, freq in enumerate(self.survey.frequency):
+                for ifreq, freq in enumerate(self.surveyPair.frequency):
                     dA_dm_f_v = self.getADeriv_sigma(freq, f[:, ifreq], v)
                     df_dm_v = - (self.Ainv[ifreq] * dA_dm_f_v)
                     Jv.append(
                         rx.evalDeriv(
-                            f[:, ifreq], freq, self.survey.P0, df_dm_v=df_dm_v
+                            f[:, ifreq], freq, self.surveyPair.P0, df_dm_v=df_dm_v
                             )
                         )
         return np.hstack(Jv)
@@ -471,22 +472,22 @@ class MT1DProblem(Problem.BaseProblem):
         # Ensure v is a data object.
 
         if not isinstance(v, self.dataPair):
-            v = self.dataPair(self.survey, v)
+            v = self.dataPair(self.surveyPair, v)
 
         Jtv = np.zeros(m.size)
 
         for src in self.survey.srcList:
             for rx in src.rxList:
-                for ifreq, freq in enumerate(self.survey.frequency):
+                for ifreq, freq in enumerate(self.surveyPair.frequency):
                     if rx.component == "both":
                         v_temp = v[src, rx].reshape(
-                            (self.survey.nFreq, 2)
+                            (self.surveyPair.nFreq, 2)
                             )[ifreq, :]
                     else:
                         v_temp = v[src, rx][ifreq]
 
                     dZ_dfT_v = rx.evalDeriv(
-                        f[:, ifreq], freq, self.survey.P0,
+                        f[:, ifreq], freq, self.surveyPair.P0,
                         v=v_temp, adjoint=True
                         )
 
